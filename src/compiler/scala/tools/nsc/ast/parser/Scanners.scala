@@ -204,6 +204,10 @@ trait Scanners extends ScannersCommon {
       }
     }
 
+    /** Skip NEWLINE tokens.
+     */
+    private def discardNewlines() { while (token == NEWLINE) fetchToken() }
+
     /** Produce next token, filling TokenData fields of Scanner.
      */
     def nextToken() {
@@ -262,11 +266,25 @@ trait Scanners extends ScannersCommon {
        *  - the current token can start a statement and the one before can end it
        *  insert NEWLINES if we are past a blank line, NEWLINE otherwise
        */
-      if (!applyBracePatch() && afterLineEnd() && inLastOfStat(lastToken) && inFirstOfStat(token) &&
-          (sepRegions.isEmpty || sepRegions.head == RBRACE)) {
-        next copyFrom this
-        offset = if (lineStartOffset <= offset) lineStartOffset else lastLineStartOffset
-        token = if (pastBlankLine()) NEWLINES else NEWLINE
+      if (token == NEWLINE) {
+        prev copyFrom this // save token offset
+        fetchToken()
+        val newlines = (token == NEWLINE)
+        discardNewlines()
+        if (!applyBracePatch()) {
+          if (inLastOfStat(lastToken) && inFirstOfStat(token) &&
+              (sepRegions.isEmpty || sepRegions.head == RBRACE)) {
+            next copyFrom this // save next non-newline token
+            this copyFrom prev // restore token offset
+            if (newlines) {
+              token = NEWLINES
+            }
+            // for backward compatibility, set offset to lineStartOffset/lastLineStartOffset
+            offset = if (lineStartOffset <= offset+1) lineStartOffset else lastLineStartOffset
+          }
+        }
+      } else {
+        applyBracePatch()
       }
 
       // Join CASE + CLASS => CASECLASS, CASE + OBJECT => CASEOBJECT, SEMI + ELSE => ELSE
@@ -274,6 +292,7 @@ trait Scanners extends ScannersCommon {
         prev copyFrom this
         val nextLastOffset = charOffset - 1
         fetchToken()
+        discardNewlines() // ok here because there can't be a NEWLINE token following a CASE
         def resetOffset() {
           offset = prev.offset
           lastOffset = prev.lastOffset
@@ -292,6 +311,7 @@ trait Scanners extends ScannersCommon {
       } else if (token == SEMI) {
         prev copyFrom this
         fetchToken()
+        discardNewlines() // ok here because there can't be a NEWLINE token following a SEMI
         if (token != ELSE) {
           next copyFrom this
           this copyFrom prev
@@ -301,42 +321,15 @@ trait Scanners extends ScannersCommon {
 //      print("["+this+"]")
     }
 
-    /** Is current token first one after a newline? */
-    private def afterLineEnd(): Boolean =
-      lastOffset < lineStartOffset &&
-      (lineStartOffset <= offset ||
-       lastOffset < lastLineStartOffset && lastLineStartOffset <= offset)
-
-    /** Is there a blank line between the current token and the last one?
-     *  @pre  afterLineEnd().
-     */
-    private def pastBlankLine(): Boolean = {
-      var idx = lastOffset
-      var ch = buf(idx)
-      val end = offset
-      while (idx < end) {
-        if (ch == LF || ch == FF) {
-          do {
-            idx += 1; ch = buf(idx)
-            if (ch == LF || ch == FF) {
-//              println("blank line found at "+lastOffset+":"+(lastOffset to idx).map(buf(_)).toList)
-              return true
-            }
-	    if (idx == end) return false
-          } while (ch <= ' ')
-        }
-        idx += 1; ch = buf(idx)
-      }
-      false
-    }
-
     /** read next token, filling TokenData fields of Scanner.
      */
     protected final def fetchToken() {
       offset = charOffset - 1
       (ch: @switch) match {
 
-        case ' ' | '\t' | CR | LF | FF =>
+        case LF | FF =>
+          nextChar(); token = NEWLINE
+        case ' ' | '\t' | CR =>
           nextChar()
           fetchToken()
         case 'A' | 'B' | 'C' | 'D' | 'E' |
@@ -530,7 +523,11 @@ trait Scanners extends ScannersCommon {
           do {
         	appendToComment()
             nextChar()
-          } while ((ch != CR) && (ch != LF) && (ch != SU))
+          } while ((ch != LF) && (ch != SU))
+          // a comment in an otherwise empty line
+          // should not emit another NEWLINE token,
+          // so skip the LF
+          if(ch == LF && token == NEWLINE) nextChar()
         } else {
           docBuffer = null
           var openComments = 1
