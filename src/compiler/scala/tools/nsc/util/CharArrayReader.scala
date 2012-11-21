@@ -23,12 +23,6 @@ abstract class CharArrayReader { self =>
   /** The offset one past the last read character */
   var charOffset: Int = 0
 
-  /** The start offset of the current line */
-  var lineStartOffset: Int = 0
-
-  /** The start offset of the line before the current one */
-  var lastLineStartOffset: Int = 0
-
   private var lastUnicodeOffset = -1
 
   /** Is last character a unicode escape \\uxxxx? */
@@ -43,13 +37,11 @@ abstract class CharArrayReader { self =>
       ch = c
       charOffset += 1
       if (c == '\\') potentialUnicode()
-      else if (c < ' ') { skipCR(); potentialLineEnd() }
+      else if (c < ' ') { skipCR() }
     }
   }
 
   /** Advance one character, leaving CR;LF pairs intact.
-   *  This is for use in multi-line strings, so there are no
-   *  "potential line ends" here.
    */
   final def nextRawChar() {
     if (charOffset >= buf.length) {
@@ -100,14 +92,6 @@ abstract class CharArrayReader { self =>
         charOffset += 1
         ch = LF
       }
-  }
-
-  /** Handle line ends */
-  private def potentialLineEnd() {
-    if (ch == LF || ch == FF) {
-      lastLineStartOffset = lineStartOffset
-      lineStartOffset = charOffset
-    }
   }
 
   /** A new reader that takes off at the current character position */
