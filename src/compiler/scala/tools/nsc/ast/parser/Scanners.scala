@@ -279,8 +279,8 @@ trait Scanners extends ScannersCommon {
             if (newlines) {
               token = NEWLINES
             }
-            // for backward compatibility, set offset to lineStartOffset/lastLineStartOffset
-            offset = if (lineStartOffset <= offset+1) lineStartOffset else lastLineStartOffset
+            // for backward compatibility, set offset to beginning of next line
+            offset += 1
           }
         }
       } else {
